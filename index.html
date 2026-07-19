@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deployment Risk Scorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --panel: #131313;
+    --panel-2: #0f0f0f;
+    --line: #262626;
+    --text: #f2f1ea;
+    --muted: #6f6f66;
+    --yellow: #ffd400;
+    --yellow-dim: #8a7300;
+    --low: #3ecf6e;
+    --medium: #ffd400;
+    --high: #ff3b3b;
+    --f-display: 'Barlow Condensed', sans-serif;
+    --f-mono: 'JetBrains Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 42px 42px;
+    background-position: -1px -1px;
+    color: var(--text);
+    font-family: var(--f-mono);
+    min-height: 100vh;
+    padding: 28px 20px 60px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell { max-width: 960px; margin: 0 auto; }
+
+  /* ---- hazard stripe utility ---- */
+  .hazard {
+    background: repeating-linear-gradient(
+      135deg,
+      var(--yellow) 0px, var(--yellow) 10px,
+      #0a0a0a 10px, #0a0a0a 20px
+    );
+  }
+
+  /* ---- header ---- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 14px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 24px;
+  }
+
+  .brand { display: flex; align-items: center; gap: 14px; }
+
+  .mark {
+    width: 42px; height: 42px;
+    flex-shrink: 0;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel);
+    border: 1.5px solid var(--yellow);
+  }
+
+  .mark::before, .mark::after {
+    content: "";
+    position: absolute;
+    width: 6px; height: 6px;
+    background: var(--yellow);
+  }
+  .mark::before { top: -1.5px; left: -1.5px; }
+  .mark::after { bottom: -1.5px; right: -1.5px; }
+
+  .mark svg { position: relative; z-index: 1; }
+
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+
+  .subtitle {
+    font-family: var(--f-mono);
+    color: var(--muted);
+    font-size: 11.5px;
+    margin-top: 5px;
+    letter-spacing: 0.02em;
+  }
+
+  .status-cluster { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+
+  .status-line {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+  .status-dot.online { background: var(--low); box-shadow: 0 0 6px rgba(62,207,110,0.7); }
+  .status-dot.offline { background: var(--high); box-shadow: 0 0 6px rgba(255,59,59,0.7); }
+
+  .model-meta { font-size: 10.5px; color: var(--muted); letter-spacing: 0.02em; }
+  .model-meta b { color: var(--yellow); font-weight: 600; }
+
+  /* ---- layout ---- */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: 1fr; }
+    .status-cluster { align-items: flex-start; }
+    .topbar { flex-direction: column; align-items: flex-start; }
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    position: relative;
+  }
+
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .panel-head h2 {
+    font-family: var(--f-display);
+    font-size: 15px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .panel-head .tag {
+    font-size: 10px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    padding: 2px 7px;
+    letter-spacing: 0.05em;
+  }
+
+  .panel-body { padding: 18px; }
+
+  .field { margin-bottom: 13px; }
+
+  .field label {
+    display: block;
+    font-size: 10.5px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+
+  .field input, .field select {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    padding: 9px 10px;
+    color: var(--text);
+    font-size: 13.5px;
+    font-family: var(--f-mono);
+    border-radius: 0;
+  }
+
+  .field input:focus, .field select:focus {
+    outline: none;
+    border-color: var(--yellow);
+  }
+
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .checkbox-field {
+    display: flex; align-items: center; gap: 9px;
+    margin-bottom: 13px;
+    padding: 9px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+  }
+
+  .checkbox-field input {
+    width: 15px; height: 15px;
+    accent-color: var(--yellow);
+  }
+  .checkbox-field label { margin: 0; color: var(--text); font-size: 12.5px; text-transform: none; letter-spacing: 0; }
+
+  button.score-btn {
+    width: 100%;
+    background: var(--yellow);
+    color: #0a0a0a;
+    border: none;
+    padding: 13px;
+    font-family: var(--f-display);
+    font-size: 15px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    margin-top: 4px;
+    transition: background 0.12s;
+  }
+
+  button.score-btn:hover { background: #ffe14d; }
+  button.score-btn:disabled { background: #3a3a30; color: var(--muted); cursor: default; }
+
+  .error-box {
+    color: var(--high);
+    font-size: 12px;
+    padding: 10px 12px;
+    background: rgba(255,59,59,0.08);
+    border: 1px solid rgba(255,59,59,0.3);
+    margin-top: 12px;
+    line-height: 1.5;
+  }
+
+  /* ---- result panel ---- */
+  .result-empty {
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.7;
+    padding: 4px 0 8px;
+  }
+
+  .risk-readout {
+    margin-bottom: 18px;
+    border: 1.5px solid;
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .risk-readout.High { border-color: var(--high); }
+  .risk-readout.Medium { border-color: var(--medium); }
+  .risk-readout.Low { border-color: var(--low); }
+
+  .risk-readout .stripe {
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 5px;
+  }
+  .risk-readout.High .stripe { background: repeating-linear-gradient(135deg, var(--high) 0 8px, #0a0a0a 8px 16px); }
+  .risk-readout.Medium .stripe { background: repeating-linear-gradient(135deg, var(--medium) 0 8px, #0a0a0a 8px 16px); }
+  .risk-readout.Low .stripe { background: var(--low); }
+
+  .risk-readout .top-row {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-top: 6px;
+  }
+
+  .risk-label {
+    font-family: var(--f-display);
+    font-size: 30px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    line-height: 1;
+  }
+  .risk-label.High { color: var(--high); }
+  .risk-label.Medium { color: var(--medium); }
+  .risk-label.Low { color: var(--low); }
+
+  .risk-sub { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .prob-bars { margin-bottom: 20px; }
+
+  .prob-row { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; font-size: 11px; }
+  .prob-row .label { width: 58px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .prob-row .track { flex: 1; height: 7px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; }
+  .prob-row .fill { height: 100%; }
+  .prob-row .fill.Low { background: var(--low); }
+  .prob-row .fill.Medium { background: var(--medium); }
+  .prob-row .fill.High { background: var(--high); }
+  .prob-row .pct { width: 38px; text-align: right; color: var(--text); font-weight: 600; }
+
+  .reasons h3 {
+    font-size: 10.5px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.06em; margin-bottom: 10px;
+  }
+
+  .reason-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 9px 0;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+  }
+  .reason-item:first-child { border-top: none; }
+
+  .reason-item .sign {
+    width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    flex-shrink: 0; margin-top: 1px;
+    border: 1px solid;
+  }
+  .reason-item .sign.up { color: var(--high); border-color: var(--high); }
+  .reason-item .sign.down { color: var(--low); border-color: var(--low); }
+
+  .reason-item .text { line-height: 1.4; }
+  .reason-item .text b { color: var(--text); }
+  .reason-item .text span { color: var(--muted); }
+
+  footer {
+    text-align: center;
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-top: 30px;
+    letter-spacing: 0.03em;
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="mark">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L2 21h20L12 2z" stroke="#ffd400" stroke-width="1.8" stroke-linejoin="round"/>
+          <line x1="12" y1="9" x2="12" y2="14" stroke="#ffd400" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="12" cy="17.3" r="1" fill="#ffd400"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Deployment Risk Scorer</h1>
+        <div class="subtitle">PRE-DEPLOYMENT RISK ASSESSMENT // XGBOOST + SHAP</div>
+      </div>
+    </div>
+    <div class="status-cluster">
+      <div class="status-line">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">CONNECTING...</span>
+      </div>
+      <div class="model-meta" id="modelMeta">MODEL: -- // ACC: --</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Deployment Input</h2>
+        <span class="tag">FORM</span>
+      </div>
+      <div class="panel-body">
+        <form id="riskForm">
+          <div class="row-2">
+            <div class="field">
+              <label>Files changed</label>
+              <input type="number" id="files_changed" value="80" min="0" required>
+            </div>
+            <div class="field">
+              <label>Lines changed</label>
+              <input type="number" id="loc_changed" value="1600" min="0" required>
+            </div>
+          </div>
+
+          <div class="row-2">
+            <div class="field">
+              <label>Hour (0-23)</label>
+              <input type="number" id="hour" value="22" min="0" max="23" required>
+            </div>
+            <div class="field">
+              <label>Day (0=Mon..6=Sun)</label>
+              <input type="number" id="day_of_week" value="4" min="0" max="6" required>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Service</label>
+            <select id="service" required>
+              <option value="checkout">checkout</option>
+            </select>
+          </div>
+
+          <div class="row-2">
+            <div class="field">
+              <label>Incidents last week</label>
+              <input type="number" id="incidents_last_week" value="2" min="0" required>
+            </div>
+            <div class="field">
+              <label>Failed tests</label>
+              <input type="number" id="failed_tests" value="1" min="0" required>
+            </div>
+          </div>
+
+          <div class="checkbox-field">
+            <input type="checkbox" id="is_weekend">
+            <label for="is_weekend">Weekend deployment</label>
+          </div>
+
+          <div class="checkbox-field">
+            <input type="checkbox" id="on_call_available">
+            <label for="on_call_available">On-call engineer available</label>
+          </div>
+
+          <button type="submit" class="score-btn" id="scoreBtn">Score This Deployment</button>
+        </form>
+        <div id="errorBox"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Risk Assessment</h2>
+        <span class="tag" id="resultTag">IDLE</span>
+      </div>
+      <div class="panel-body">
+        <div id="resultArea">
+          <div class="result-empty">Fill in deployment details and run a scan to see the predicted risk level and the factors behind it.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>DEPLOYMENT RISK SCORER · TEAM 404 NOT FOUND · SYNERGY 2026</footer>
+</div>
+
+<script>
+const API_URL = "http://127.0.0.1:8000";
+
+async function checkHealth() {
+  const dot = document.getElementById("statusDot");
+  const text = document.getElementById("statusText");
+  const meta = document.getElementById("modelMeta");
+  try {
+    const res = await fetch(`${API_URL}/health`);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    dot.className = "status-dot online";
+    text.textContent = "API ONLINE";
+    meta.innerHTML = `MODEL: <b>${data.model.algorithm}</b> // ACC: <b>${(data.model.accuracy*100).toFixed(1)}%</b> // N=${data.model.training_samples}`;
+    await loadServices();
+  } catch (e) {
+    dot.className = "status-dot offline";
+    text.textContent = "API OFFLINE";
+    meta.textContent = "run: python app.py";
+  }
+}
+
+async function loadServices() {
+  try {
+    const res = await fetch(`${API_URL}/services`);
+    const data = await res.json();
+    const select = document.getElementById("service");
+    select.innerHTML = data.services.map(s => `<option value="${s}">${s}</option>`).join("");
+    select.value = "checkout";
+  } catch (e) { /* keep fallback option */ }
+}
+
+checkHealth();
+
+document.getElementById("riskForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById("scoreBtn");
+  const errorBox = document.getElementById("errorBox");
+  const resultTag = document.getElementById("resultTag");
+  errorBox.innerHTML = "";
+  btn.disabled = true;
+  btn.textContent = "Scanning...";
+  resultTag.textContent = "SCANNING";
+
+  const payload = {
+    files_changed: parseInt(document.getElementById("files_changed").value),
+    loc_changed: parseInt(document.getElementById("loc_changed").value),
+    hour: parseInt(document.getElementById("hour").value),
+    day_of_week: parseInt(document.getElementById("day_of_week").value),
+    is_weekend: document.getElementById("is_weekend").checked ? 1 : 0,
+    service: document.getElementById("service").value,
+    incidents_last_week: parseInt(document.getElementById("incidents_last_week").value),
+    on_call_available: document.getElementById("on_call_available").checked ? 1 : 0,
+    failed_tests: parseInt(document.getElementById("failed_tests").value),
+  };
+
+  try {
+    const res = await fetch(`${API_URL}/predict`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Request failed");
+    }
+
+    const data = await res.json();
+    renderResult(data);
+    resultTag.textContent = data.risk.toUpperCase();
+  } catch (err) {
+    errorBox.innerHTML = `<div class="error-box">COULD NOT REACH API. Make sure app.py is running on port 8000.<br>${err.message}</div>`;
+    resultTag.textContent = "ERROR";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Score This Deployment";
+  }
+});
+
+function renderResult(data) {
+  const area = document.getElementById("resultArea");
+  const probs = data.probabilities;
+
+  const reasonsHtml = data.reasons.map(r => {
+    const up = r.direction === "increases";
+    return `
+      <div class="reason-item">
+        <div class="sign ${up ? 'up' : 'down'}">${up ? '+' : '-'}</div>
+        <div class="text"><b>${r.feature.replace(/_/g, ' ')}</b> = ${r.value} <span>(${r.direction} risk)</span></div>
+      </div>
+    `;
+  }).join("");
+
+  area.innerHTML = `
+    <div class="risk-readout ${data.risk}">
+      <div class="stripe"></div>
+      <div class="risk-sub">PREDICTED RISK LEVEL</div>
+      <div class="top-row">
+        <span class="risk-label ${data.risk}">${data.risk}</span>
+      </div>
+    </div>
+    <div class="prob-bars">
+      ${["Low", "Medium", "High"].map(level => `
+        <div class="prob-row">
+          <span class="label">${level}</span>
+          <div class="track"><div class="fill ${level}" style="width:${probs[level] * 100}%"></div></div>
+          <span class="pct">${Math.round(probs[level] * 100)}%</span>
+        </div>
+      `).join("")}
+    </div>
+    <div class="reasons">
+      <h3>Top Contributing Factors</h3>
+      ${reasonsHtml}
+    </div>
+  `;
+}
+</script>
+</body>
+</html>
