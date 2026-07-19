@@ -79,9 +79,3 @@ Not done yet: pulling real deployment data from GitHub instead of synthetic
 data, a database to store prediction history, deploying this anywhere
 outside a laptop.
 
-## Team
-
-Backend / GitHub API - Member 2
-ML / model training - Member 3
-SHAP + docs - Member 4
-Frontend / dashboard - Suhina
